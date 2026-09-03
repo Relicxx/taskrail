@@ -1,0 +1,5 @@
+.env
+.superpowers/
+work/
+*.exe
+coverage.out
