@@ -148,3 +148,170 @@ func TestCancelAndRetry(t *testing.T) {
 		t.Fatal(e)
 	}
 }
+func TestParallelClaim(t *testing.T) {
+	s := testStore(t)
+	ctx := context.Background()
+	for i := 0; i < 20; i++ {
+		if _, _, e := s.Create(ctx, "alice", uuid.NewString(), input()); e != nil {
+			t.Fatal(e)
+		}
+	}
+	var wg sync.WaitGroup
+	seen := sync.Map{}
+	for i := 0; i < 20; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			v, e := s.Claim(ctx, uuid.NewString(), time.Minute)
+			if e != nil {
+				t.Error(e)
+				return
+			}
+			if _, loaded := seen.LoadOrStore(v.ID, true); loaded {
+				t.Error("double claim")
+			}
+		}()
+	}
+	wg.Wait()
+}
+func TestExhaustionAndRetry(t *testing.T) {
+	s := testStore(t)
+	ctx := context.Background()
+	in := input()
+	in.MaxAttempts = 1
+	v, _, e := s.Create(ctx, "alice", "original", in)
+	if e != nil {
+		t.Fatal(e)
+	}
+	a, e := s.Claim(ctx, "w", time.Minute)
+	if e != nil {
+		t.Fatal(e)
+	}
+	if e = s.Fail(ctx, a.ID, "w", a.Generation, "timeout", false, 0); e != nil {
+		t.Fatal(e)
+	}
+	v, _ = s.Get(ctx, "alice", v.ID)
+	if v.State != task.Failed {
+		t.Fatal(v)
+	}
+	child, replay, e := s.Retry(ctx, "alice", v.ID, "retry")
+	if e != nil || replay || child.ParentTaskID == nil || *child.ParentTaskID != v.ID || child.AttemptCount != 0 {
+		t.Fatal(child, replay, e)
+	}
+	same, replay, e := s.Retry(ctx, "alice", v.ID, "retry")
+	if e != nil || !replay || same.ID != child.ID {
+		t.Fatal(same, replay, e)
+	}
+	if _, _, e = s.Retry(ctx, "bob", v.ID, "retry"); !errors.Is(e, task.ErrNotFound) {
+		t.Fatal(e)
+	}
+}
+func TestPaginationAndCancelQueued(t *testing.T) {
+	s := testStore(t)
+	ctx := context.Background()
+	for i := 0; i < 5; i++ {
+		if _, _, e := s.Create(ctx, "alice", uuid.NewString(), input()); e != nil {
+			t.Fatal(e)
+		}
+	}
+	if _, e := s.pool.Exec(ctx, "UPDATE tasks SET created_at='2026-01-01T00:00:00Z'"); e != nil {
+		t.Fatal(e)
+	}
+	seen := map[string]bool{}
+	cursor := ""
+	for {
+		items, next, e := s.List(ctx, "alice", cursor, 2)
+		if e != nil {
+			t.Fatal(e)
+		}
+		for _, v := range items {
+			if seen[v.ID] {
+				t.Fatal("duplicate page")
+			}
+			seen[v.ID] = true
+		}
+		if next == "" {
+			break
+		}
+		cursor = next
+	}
+	if len(seen) != 5 {
+		t.Fatal(seen)
+	}
+	if _, _, e := s.List(ctx, "alice", "broken", 2); !errors.Is(e, task.ErrInvalid) {
+		t.Fatal(e)
+	}
+	for id := range seen {
+		v, e := s.Cancel(ctx, "alice", id)
+		if e != nil || v.State != task.Canceled {
+			t.Fatal(v, e)
+		}
+	}
+	if _, e := s.Claim(ctx, "w", time.Minute); !errors.Is(e, task.ErrNotFound) {
+		t.Fatal(e)
+	}
+}
+func TestCompleteBeforeCancel(t *testing.T) {
+	s := testStore(t)
+	ctx := context.Background()
+	_, _, _ = s.Create(ctx, "alice", "k", input())
+	a, e := s.Claim(ctx, "w", time.Minute)
+	if e != nil {
+		t.Fatal(e)
+	}
+	if e = s.Complete(ctx, a.ID, "w", a.Generation, json.RawMessage(`{}`)); e != nil {
+		t.Fatal(e)
+	}
+	v, e := s.Cancel(ctx, "alice", a.ID)
+	if e != nil || v.State != task.Succeeded {
+		t.Fatal(v, e)
+	}
+	attempts, e := s.Attempts(ctx, "alice", a.ID)
+	if e != nil || len(attempts) != 1 || attempts[0].FinishedAt == nil || attempts[0].Outcome != "succeeded" {
+		t.Fatal(attempts, e)
+	}
+}
+func TestExpiredFinalAttempt(t *testing.T) {
+	s := testStore(t)
+	ctx := context.Background()
+	in := input()
+	in.MaxAttempts = 1
+	_, _, _ = s.Create(ctx, "alice", "k", in)
+	a, e := s.Claim(ctx, "w", time.Minute)
+	if e != nil {
+		t.Fatal(e)
+	}
+	_, e = s.pool.Exec(ctx, "UPDATE tasks SET lease_until=clock_timestamp()-interval '1 second' WHERE id=$1", a.ID)
+	if e != nil {
+		t.Fatal(e)
+	}
+	if _, e = s.Recover(ctx, 10); e != nil {
+		t.Fatal(e)
+	}
+	v, e := s.Get(ctx, "alice", a.ID)
+	if e != nil || v.State != task.Failed {
+		t.Fatal(v, e)
+	}
+}
+func TestCanceledLease(t *testing.T) {
+	s := testStore(t)
+	ctx := context.Background()
+	_, _, _ = s.Create(ctx, "alice", "k", input())
+	a, e := s.Claim(ctx, "w", time.Minute)
+	if e != nil {
+		t.Fatal(e)
+	}
+	_, _ = s.Cancel(ctx, "alice", a.ID)
+	_, e = s.pool.Exec(ctx, "UPDATE tasks SET lease_until=clock_timestamp()-interval '1 second' WHERE id=$1", a.ID)
+	if e != nil {
+		t.Fatal(e)
+	}
+	_, e = s.Recover(ctx, 10)
+	if e != nil {
+		t.Fatal(e)
+	}
+	v, _ := s.Get(ctx, "alice", a.ID)
+	if v.State != task.Canceled {
+		t.Fatal(v)
+	}
+}
