@@ -1,0 +1,210 @@
+openapi: 3.0.3
+info:
+  title: TaskRail
+  version: 0.1.0
+  description: At-least-once background task processing. Authentication and idempotency are scoped to a client.
+servers:
+  - url: http://localhost:8080
+security:
+  - ApiKey: []
+paths:
+  /healthz:
+    get:
+      security: []
+      responses:
+        '200': {description: Process alive}
+  /readyz:
+    get:
+      security: []
+      responses:
+        '200': {description: Database reachable}
+        '503': {$ref: '#/components/responses/Error'}
+  /v1/tasks:
+    post:
+      summary: Create a task; replay returns the same resource
+      parameters:
+        - {$ref: '#/components/parameters/IdempotencyKey'}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/CreateTask'}
+      responses:
+        '201': {$ref: '#/components/responses/Task'}
+        '200': {$ref: '#/components/responses/Task'}
+        '400': {$ref: '#/components/responses/Error'}
+        '401': {$ref: '#/components/responses/Error'}
+        '409': {$ref: '#/components/responses/Error'}
+        '413': {$ref: '#/components/responses/Error'}
+        '415': {$ref: '#/components/responses/Error'}
+        '429': {$ref: '#/components/responses/Error'}
+        '500': {$ref: '#/components/responses/Error'}
+        '503': {$ref: '#/components/responses/Error'}
+    get:
+      summary: List own tasks in ascending creation order
+      parameters:
+        - name: limit
+          in: query
+          schema: {type: integer, minimum: 1, maximum: 100, default: 20}
+        - name: cursor
+          in: query
+          schema: {type: string, maxLength: 1024}
+      responses:
+        '200':
+          description: Page of tasks
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items, next_cursor]
+                properties:
+                  items: {type: array, items: {$ref: '#/components/schemas/Task'}}
+                  next_cursor: {type: string, description: Empty string on the last page}
+        '400': {$ref: '#/components/responses/Error'}
+        '401': {$ref: '#/components/responses/Error'}
+        '429': {$ref: '#/components/responses/Error'}
+        '500': {$ref: '#/components/responses/Error'}
+        '503': {$ref: '#/components/responses/Error'}
+  /v1/tasks/{id}:
+    parameters:
+      - {$ref: '#/components/parameters/TaskID'}
+    get:
+      responses:
+        '200': {$ref: '#/components/responses/Task'}
+        '401': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
+        '429': {$ref: '#/components/responses/Error'}
+        '500': {$ref: '#/components/responses/Error'}
+        '503': {$ref: '#/components/responses/Error'}
+  /v1/tasks/{id}/attempts:
+    parameters:
+      - {$ref: '#/components/parameters/TaskID'}
+    get:
+      responses:
+        '200':
+          description: Attempt history
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items: {type: array, items: {$ref: '#/components/schemas/Attempt'}}
+        '401': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
+        '429': {$ref: '#/components/responses/Error'}
+        '500': {$ref: '#/components/responses/Error'}
+        '503': {$ref: '#/components/responses/Error'}
+  /v1/tasks/{id}/cancel:
+    parameters:
+      - {$ref: '#/components/parameters/TaskID'}
+    post:
+      summary: Request cooperative cancellation; terminal states are unchanged
+      responses:
+        '200': {$ref: '#/components/responses/Task'}
+        '401': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
+        '429': {$ref: '#/components/responses/Error'}
+        '500': {$ref: '#/components/responses/Error'}
+        '503': {$ref: '#/components/responses/Error'}
+  /v1/tasks/{id}/retry:
+    parameters:
+      - {$ref: '#/components/parameters/TaskID'}
+    post:
+      summary: Create a new task from a failed task, preserving history
+      parameters:
+        - {$ref: '#/components/parameters/IdempotencyKey'}
+      responses:
+        '201': {$ref: '#/components/responses/Task'}
+        '200': {$ref: '#/components/responses/Task'}
+        '400': {$ref: '#/components/responses/Error'}
+        '401': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
+        '409': {$ref: '#/components/responses/Error'}
+        '429': {$ref: '#/components/responses/Error'}
+        '500': {$ref: '#/components/responses/Error'}
+        '503': {$ref: '#/components/responses/Error'}
+components:
+  securitySchemes:
+    ApiKey: {type: apiKey, in: header, name: X-API-Key}
+  parameters:
+    TaskID:
+      name: id
+      in: path
+      required: true
+      schema: {type: string, format: uuid}
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      schema: {type: string, minLength: 1, maxLength: 128, pattern: '^[!-~]+$'}
+  responses:
+    Task:
+      description: Task resource
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/Task'}
+    Error:
+      description: Request failed; details do not reveal database or credentials
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/Error'}
+  schemas:
+    Error:
+      type: object
+      required: [code, message, request_id]
+      properties:
+        code: {type: string}
+        message: {type: string}
+        request_id: {type: string, format: uuid}
+    AggregatePayload:
+      type: object
+      additionalProperties: false
+      required: [numbers]
+      properties:
+        numbers: {type: array, minItems: 1, maxItems: 10000, items: {type: number, format: double}}
+    WaitPayload:
+      type: object
+      additionalProperties: false
+      required: [duration_ms]
+      properties:
+        duration_ms: {type: integer, minimum: 1, maximum: 300000}
+    CreateTask:
+      type: object
+      additionalProperties: false
+      required: [type, payload]
+      description: Body limit 1 MiB. Duplicate JSON keys and trailing documents are rejected. demo.wait requires DEMO_MODE=true. run_at omitted means immediate; times are normalized to UTC.
+      properties:
+        type: {type: string, enum: [report.aggregate, demo.wait]}
+        payload:
+          oneOf:
+            - {$ref: '#/components/schemas/AggregatePayload'}
+            - {$ref: '#/components/schemas/WaitPayload'}
+        run_at: {type: string, format: date-time, nullable: true}
+        max_attempts: {type: integer, minimum: 1, maximum: 10, default: 5}
+        timeout_ms: {type: integer, minimum: 1000, maximum: 300000, default: 60000}
+    Task:
+      type: object
+      required: [id, type, payload, state, run_at, attempt_count, max_attempts, timeout_ms, cancel_requested, created_at, updated_at]
+      properties:
+        id: {type: string, format: uuid}
+        type: {type: string}
+        payload: {type: object}
+        result: {type: object}
+        state: {type: string, enum: [queued, running, succeeded, failed, canceled]}
+        run_at: {type: string, format: date-time}
+        attempt_count: {type: integer}
+        max_attempts: {type: integer}
+        timeout_ms: {type: integer}
+        cancel_requested: {type: boolean}
+        parent_task_id: {type: string, format: uuid}
+        created_at: {type: string, format: date-time}
+        updated_at: {type: string, format: date-time}
+    Attempt:
+      type: object
+      properties:
+        generation: {type: integer, format: int64}
+        worker_id: {type: string}
+        started_at: {type: string, format: date-time}
+        finished_at: {type: string, format: date-time}
+        outcome: {type: string, enum: [running, succeeded, retry, failed, canceled, lease_expired]}
+        error: {type: string}
