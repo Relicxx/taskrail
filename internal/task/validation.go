@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"io"
 	"math"
+	"reflect"
+	"strings"
 )
 
 // StrictJSON rejects duplicate keys throughout the document, unknown fields and trailing values.
@@ -19,6 +21,30 @@ func StrictJSON(raw []byte, dst any) error {
 	}
 	if _, err := d.Token(); err != io.EOF {
 		return fmt.Errorf("trailing JSON")
+	}
+	typ := reflect.TypeOf(dst)
+	if typ != nil && typ.Kind() == reflect.Pointer && typ.Elem().Kind() == reflect.Struct {
+		var fields map[string]json.RawMessage
+		if e := json.Unmarshal(raw, &fields); e != nil {
+			return e
+		}
+		allowed := map[string]bool{}
+		typ = typ.Elem()
+		for i := 0; i < typ.NumField(); i++ {
+			f := typ.Field(i)
+			name := strings.Split(f.Tag.Get("json"), ",")[0]
+			if name == "" {
+				name = f.Name
+			}
+			if name != "-" {
+				allowed[name] = true
+			}
+		}
+		for name := range fields {
+			if !allowed[name] {
+				return fmt.Errorf("unknown field")
+			}
+		}
 	}
 	d = json.NewDecoder(bytes.NewReader(raw))
 	d.DisallowUnknownFields()
@@ -68,6 +94,23 @@ type Duration struct {
 	DurationMS int `json:"duration_ms"`
 }
 
+func decodeNumbers(raw []byte) (Numbers, error) {
+	var src struct {
+		Numbers []*float64 `json:"numbers"`
+	}
+	if StrictJSON(raw, &src) != nil || len(src.Numbers) == 0 || len(src.Numbers) > 10000 {
+		return Numbers{}, ErrInvalid
+	}
+	n := Numbers{Numbers: make([]float64, len(src.Numbers))}
+	for i, v := range src.Numbers {
+		if v == nil || math.IsNaN(*v) || math.IsInf(*v, 0) {
+			return Numbers{}, ErrInvalid
+		}
+		n.Numbers[i] = *v
+	}
+	return n, nil
+}
+
 func Normalize(in CreateInput, demo bool) (CreateInput, error) {
 	if in.MaxAttempts == 0 {
 		in.MaxAttempts = 5
@@ -84,8 +127,8 @@ func Normalize(in CreateInput, demo bool) (CreateInput, error) {
 	}
 	switch in.Type {
 	case "report.aggregate":
-		var n Numbers
-		if StrictJSON(in.Payload, &n) != nil || len(n.Numbers) == 0 || len(n.Numbers) > 10000 {
+		n, err := decodeNumbers(in.Payload)
+		if err != nil {
 			return in, ErrInvalid
 		}
 		for _, v := range n.Numbers {

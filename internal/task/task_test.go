@@ -74,3 +74,19 @@ func TestNormalizeDefaults(t *testing.T) {
 		t.Fatal("unstable immediate hash")
 	}
 }
+func TestNullNumberRejected(t *testing.T) {
+	_, e := Normalize(CreateInput{Type: "report.aggregate", Payload: json.RawMessage(`{"numbers":[null]}`)}, false)
+	if e == nil {
+		t.Fatal("null accepted as zero")
+	}
+	if _, e = (Aggregate{}).Execute(context.Background(), json.RawMessage(`{"numbers":[null]}`)); e == nil {
+		t.Fatal("handler accepted null")
+	}
+}
+func TestJSONFieldCase(t *testing.T) {
+	for _, raw := range []string{`{"Numbers":[1]}`, `{"numbers":[1],"Numbers":[2]}`} {
+		if _, e := Normalize(CreateInput{Type: "report.aggregate", Payload: json.RawMessage(raw)}, false); e == nil {
+			t.Fatal("accepted non-schema field", raw)
+		}
+	}
+}

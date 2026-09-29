@@ -11,8 +11,8 @@ import (
 type Aggregate struct{}
 
 func (Aggregate) Execute(ctx context.Context, raw json.RawMessage) (json.RawMessage, error) {
-	var n Numbers
-	if StrictJSON(raw, &n) != nil || len(n.Numbers) == 0 {
+	n, err := decodeNumbers(raw)
+	if err != nil {
 		return nil, Permanent(ErrInvalid)
 	}
 	min, max, sum := n.Numbers[0], n.Numbers[0], 0.
