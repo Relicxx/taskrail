@@ -45,7 +45,8 @@ func (s *Store) create(ctx context.Context, tx pgx.Tx, client, key string, in ta
 	return v, tag.RowsAffected() == 0, e
 }
 func (s *Store) Retry(ctx context.Context, client, id, key string) (task.Task, bool, error) {
-	if _, e := uuid.Parse(id); e != nil {
+	parsed, parseErr := uuid.Parse(id)
+	if parseErr != nil {
 		return task.Task{}, false, task.ErrNotFound
 	}
 	tx, e := s.begin(ctx)
@@ -53,6 +54,7 @@ func (s *Store) Retry(ctx context.Context, client, id, key string) (task.Task, b
 		return task.Task{}, false, e
 	}
 	defer rollback(tx)
+	id = parsed.String()
 	old, e := scan(tx.QueryRow(ctx, `SELECT `+columns+` FROM tasks WHERE client_id=$1 AND id=$2 FOR UPDATE`, client, id))
 	if e != nil {
 		return old, false, e

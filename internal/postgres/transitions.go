@@ -12,7 +12,8 @@ import (
 
 func scanError(e error) (error, bool) { return e, errors.Is(e, pgx.ErrNoRows) }
 func (s *Store) Cancel(ctx context.Context, client, id string) (task.Task, error) {
-	if _, e := uuid.Parse(id); e != nil {
+	parsed, parseErr := uuid.Parse(id)
+	if parseErr != nil {
 		return task.Task{}, task.ErrNotFound
 	}
 	tx, e := s.begin(ctx)
@@ -20,6 +21,7 @@ func (s *Store) Cancel(ctx context.Context, client, id string) (task.Task, error
 		return task.Task{}, e
 	}
 	defer rollback(tx)
+	id = parsed.String()
 	v, e := scan(tx.QueryRow(ctx, `SELECT `+columns+` FROM tasks WHERE client_id=$1 AND id=$2 FOR UPDATE`, client, id))
 	if e != nil {
 		return v, e

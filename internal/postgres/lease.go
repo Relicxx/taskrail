@@ -23,12 +23,28 @@ func (s *Store) Claim(ctx context.Context, worker string, lease time.Duration) (
 	return v, e
 }
 func (s *Store) Heartbeat(ctx context.Context, id, worker string, gen int64, lease time.Duration) (bool, error) {
+	tx, e := s.begin(ctx)
+	if e != nil {
+		return false, e
+	}
+	defer rollback(tx)
+	var locked string
+	e = tx.QueryRow(ctx, `SELECT id::text FROM tasks WHERE id=$1 AND worker_id=$2 AND generation=$3 AND state='running' FOR UPDATE`, id, worker, gen).Scan(&locked)
+	if _, missing := scanError(e); missing {
+		return false, task.ErrLeaseLost
+	}
+	if e != nil {
+		return false, e
+	}
 	var cancel bool
-	e := s.pool.QueryRow(ctx, `UPDATE tasks SET lease_until=clock_timestamp()+$4::bigint*interval '1 millisecond',updated_at=clock_timestamp() WHERE id=$1 AND worker_id=$2 AND generation=$3 AND state='running' AND lease_until>clock_timestamp() RETURNING cancel_requested`, id, worker, gen, lease.Milliseconds()).Scan(&cancel)
+	e = tx.QueryRow(ctx, `UPDATE tasks SET lease_until=clock_timestamp()+$4::bigint*interval '1 millisecond',updated_at=clock_timestamp() WHERE id=$1 AND worker_id=$2 AND generation=$3 AND state='running' AND lease_until>clock_timestamp() RETURNING cancel_requested`, id, worker, gen, lease.Milliseconds()).Scan(&cancel)
 	if e != nil {
 		if _, getErr := scanError(e); getErr {
 			return false, task.ErrLeaseLost
 		}
 	}
-	return cancel, e
+	if e != nil {
+		return false, e
+	}
+	return cancel, tx.Commit(ctx)
 }

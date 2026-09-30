@@ -10,9 +10,11 @@ import (
 )
 
 func (s *Store) Get(ctx context.Context, client, id string) (task.Task, error) {
-	if _, e := uuid.Parse(id); e != nil {
+	parsed, err := uuid.Parse(id)
+	if err != nil {
 		return task.Task{}, task.ErrNotFound
 	}
+	id = parsed.String()
 	return scan(s.pool.QueryRow(ctx, `SELECT `+columns+` FROM tasks WHERE client_id=$1 AND id=$2`, client, id))
 }
 
@@ -31,10 +33,12 @@ func (s *Store) List(ctx context.Context, client, raw string, limit int) ([]task
 		if e != nil || json.Unmarshal(b, &c) != nil || c.Time.IsZero() {
 			return nil, "", task.ErrInvalid
 		}
-		if _, e = uuid.Parse(c.ID); e != nil {
+		_, parseErr := uuid.Parse(c.ID)
+		if parseErr != nil {
 			return nil, "", task.ErrInvalid
 		}
 	}
+	c.ID = parsedCursorID(c.ID)
 	var after any
 	var id any
 	if raw != "" {
@@ -84,4 +88,12 @@ func (s *Store) Attempts(ctx context.Context, client, id string) ([]task.Attempt
 		out = append(out, a)
 	}
 	return out, rows.Err()
+}
+
+func parsedCursorID(raw string) string {
+	v, e := uuid.Parse(raw)
+	if e != nil {
+		return raw
+	}
+	return v.String()
 }
