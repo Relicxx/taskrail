@@ -59,10 +59,17 @@ func (w *Worker) Run(ctx context.Context) error {
 	slots := make(chan struct{}, w.cfg.Concurrency)
 loop:
 	for {
+		if ctx.Err() != nil {
+			break loop
+		}
 		select {
 		case <-ctx.Done():
 			break loop
 		case slots <- struct{}{}:
+		}
+		if ctx.Err() != nil {
+			<-slots
+			break loop
 		}
 		c, cancel := context.WithTimeout(ctx, 2*time.Second)
 		v, e := w.store.Claim(c, w.cfg.WorkerID, w.cfg.Lease)
@@ -191,5 +198,12 @@ func safeExecute(ctx context.Context, h task.Handler, p json.RawMessage) (result
 			e = errors.New("handler panic")
 		}
 	}()
-	return h.Execute(ctx, p)
+	if e = ctx.Err(); e != nil {
+		return nil, e
+	}
+	result, e = h.Execute(ctx, p)
+	if ctx.Err() != nil {
+		return nil, ctx.Err()
+	}
+	return result, e
 }

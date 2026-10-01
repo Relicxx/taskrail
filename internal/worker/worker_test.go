@@ -43,3 +43,17 @@ func TestPanicIsSafe(t *testing.T) {
 		t.Fatal(e)
 	}
 }
+func TestHandlerCannotCompleteAfterTimeout(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	_, e := safeExecute(ctx, ignoresContext{}, nil)
+	if !errors.Is(e, context.Canceled) {
+		t.Fatal("canceled handler result was accepted", e)
+	}
+}
+
+type ignoresContext struct{}
+
+func (ignoresContext) Execute(context.Context, json.RawMessage) (json.RawMessage, error) {
+	return json.RawMessage(`{}`), nil
+}
