@@ -80,3 +80,17 @@ func TestRateLimit(t *testing.T) {
 		t.Fatal("unbounded requests")
 	}
 }
+func TestExplicitZeroLimits(t *testing.T) {
+	h := New(fakeStore{}, config.Config{Keys: map[string]string{"alice": "secret"}}, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	for _, field := range []string{"max_attempts", "timeout_ms"} {
+		r := httptest.NewRequest("POST", "/v1/tasks", strings.NewReader(`{"type":"report.aggregate","payload":{"numbers":[1]},"`+field+`":0}`))
+		r.Header.Set("Content-Type", "application/json")
+		r.Header.Set("X-API-Key", "secret")
+		r.Header.Set("Idempotency-Key", "zero")
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, r)
+		if w.Code != 400 {
+			t.Fatal(field, w.Code)
+		}
+	}
+}

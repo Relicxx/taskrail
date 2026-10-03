@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"crypto/subtle"
+	"encoding/json"
 	"errors"
 	"github.com/Relicxx/taskrail/internal/config"
 	"github.com/Relicxx/taskrail/internal/task"
@@ -137,6 +138,17 @@ func New(store Store, cfg config.Config, logger *slog.Logger) http.Handler {
 		if task.StrictJSON(body, &in) != nil {
 			respond(c, 400, "invalid_json")
 			return
+		}
+		var fields map[string]json.RawMessage
+		_ = json.Unmarshal(body, &fields)
+		for _, name := range []string{"max_attempts", "timeout_ms"} {
+			if raw, present := fields[name]; present {
+				var n *int
+				if json.Unmarshal(raw, &n) != nil || n == nil || *n <= 0 {
+					respond(c, 400, "invalid_limits")
+					return
+				}
+			}
 		}
 		in, e = task.Normalize(in, cfg.Demo)
 		if e != nil {
