@@ -53,7 +53,16 @@ func Run(mode string) error {
 		if cfg.Demo {
 			handlers["demo.wait"] = task.Wait{}
 		}
-		return worker.New(store, handlers, cfg, logger).Run(ctx)
+		e = worker.New(store, handlers, cfg, logger).Run(ctx)
+		if e != nil {
+			return e
+		}
+		select {
+		case e = <-errCh:
+			return e
+		default:
+			return nil
+		}
 	}
 	api := server(cfg.HTTPAddr, httpapi.New(store, cfg, logger))
 	go func() {

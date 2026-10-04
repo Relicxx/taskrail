@@ -1,4 +1,4 @@
-FROM golang:1.26.2-bookworm AS build
+FROM golang:1.26.6-bookworm AS build
 WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
@@ -11,3 +11,4 @@ COPY --from=build /out/ /app/
 COPY migrations /app/migrations
 USER 65532:65532
 CMD ["/app/api"]
+
