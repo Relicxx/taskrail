@@ -4,7 +4,7 @@ TaskRail is a Go background task service with a Gin REST API, a PostgreSQL queue
 
 ## Quick start
 
-Requirements: Docker Desktop / Docker Engine with Compose v2. Go 1.26.2 is needed only for native development.
+Requirements: Docker Desktop / Docker Engine with Compose v2. Go 1.26.6 is needed only for native development.
 
 ```powershell
 Copy-Item .env.example .env
@@ -148,3 +148,4 @@ For a load test, install k6 and run `k6 run scripts/load.js` with API_KEY set. T
 ## Scope
 
 Implemented scope is a local v0.1 service. Periodic scheduling, priority queues, distributed API quotas and external executable jobs are future work.
+
