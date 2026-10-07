@@ -27,4 +27,3 @@ try {
 } finally {
   if ($service -in @('worker-a','worker-b')) { docker compose start $service | Out-Null }
 }
-

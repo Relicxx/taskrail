@@ -23,4 +23,3 @@ while true; do
 done
 curl --connect-timeout 2 --max-time 5 --fail --silent "$base/v1/tasks/$id/attempts" -H "X-API-Key: $API_KEY" | jq -e '.items | length >= 2 and any(.[]; .outcome=="lease_expired")' >/dev/null
 echo "Recovery verified: $id"
-

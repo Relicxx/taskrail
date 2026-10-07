@@ -11,4 +11,3 @@ COPY --from=build /out/ /app/
 COPY migrations /app/migrations
 USER 65532:65532
 CMD ["/app/api"]
-

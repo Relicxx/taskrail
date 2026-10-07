@@ -148,4 +148,3 @@ For a load test, install k6 and run `k6 run scripts/load.js` with API_KEY set. T
 ## Scope
 
 Implemented scope is a local v0.1 service. Periodic scheduling, priority queues, distributed API quotas and external executable jobs are future work.
-
