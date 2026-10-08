@@ -52,7 +52,12 @@ func Load() (c Config, e error) {
 	for _, p := range []struct {
 		name, def string
 		dst       *time.Duration
-	}{{"LEASE", "30s", &c.Lease}, {"HEARTBEAT", "10s", &c.Heartbeat}, {"POLL", "500ms", &c.Poll}, {"SHUTDOWN_GRACE", "20s", &c.Grace}} {
+	}{
+		{"LEASE", "30s", &c.Lease},
+		{"HEARTBEAT", "10s", &c.Heartbeat},
+		{"POLL", "500ms", &c.Poll},
+		{"SHUTDOWN_GRACE", "20s", &c.Grace},
+	} {
 		*p.dst, err = time.ParseDuration(value(p.name, p.def))
 		if err != nil || *p.dst <= 0 {
 			return c, fmt.Errorf("invalid %s", p.name)
@@ -67,6 +72,7 @@ func Load() (c Config, e error) {
 	}
 	return c, nil
 }
+
 func value(k, d string) string {
 	if v := os.Getenv(k); v != "" {
 		return v

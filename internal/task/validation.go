@@ -50,6 +50,7 @@ func StrictJSON(raw []byte, dst any) error {
 	d.DisallowUnknownFields()
 	return d.Decode(dst)
 }
+
 func uniqueValue(d *json.Decoder) error {
 	token, err := d.Token()
 	if err != nil {
@@ -148,6 +149,7 @@ func Normalize(in CreateInput, demo bool) (CreateInput, error) {
 	}
 	return in, nil
 }
+
 func Hash(in CreateInput) (string, error) {
 	b, e := json.Marshal(in)
 	if e != nil {

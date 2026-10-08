@@ -62,8 +62,15 @@ type Handler interface {
 }
 type permanent struct{ error }
 
-func Permanent(e error) error  { return permanent{e} }
-func IsPermanent(e error) bool { var p permanent; return errors.As(e, &p) }
+func Permanent(e error) error {
+	return permanent{e}
+}
+
+func IsPermanent(e error) bool {
+	var p permanent
+	return errors.As(e, &p)
+}
+
 func Backoff(attempt int, random float64) time.Duration {
 	if random < 0 {
 		random = 0

@@ -4,9 +4,11 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
-	"github.com/Relicxx/taskrail/internal/task"
-	"github.com/google/uuid"
 	"time"
+
+	"github.com/google/uuid"
+
+	"github.com/Relicxx/taskrail/internal/task"
 )
 
 func (s *Store) Get(ctx context.Context, client, id string) (task.Task, error) {
@@ -33,19 +35,26 @@ func (s *Store) List(ctx context.Context, client, raw string, limit int) ([]task
 		if e != nil || json.Unmarshal(b, &c) != nil || c.Time.IsZero() {
 			return nil, "", task.ErrInvalid
 		}
-		_, parseErr := uuid.Parse(c.ID)
+		parsed, parseErr := uuid.Parse(c.ID)
 		if parseErr != nil {
 			return nil, "", task.ErrInvalid
 		}
+		c.ID = parsed.String()
 	}
-	c.ID = parsedCursorID(c.ID)
 	var after any
 	var id any
 	if raw != "" {
 		after = c.Time
 		id = c.ID
 	}
-	rows, e := s.pool.Query(ctx, `SELECT `+columns+` FROM tasks WHERE client_id=$1 AND ($2::timestamptz IS NULL OR (created_at,id)>($2,$3::uuid)) ORDER BY created_at,id LIMIT $4`, client, after, id, limit+1)
+	rows, e := s.pool.Query(ctx, `SELECT `+columns+`
+FROM tasks
+WHERE client_id=$1
+AND ($2::timestamptz IS NULL
+OR (created_at,id)>($2,$3::uuid))
+ORDER BY created_at,id
+LIMIT $4
+`, client, after, id, limit+1)
 	if e != nil {
 		return nil, "", e
 	}
@@ -70,11 +79,17 @@ func (s *Store) List(ctx context.Context, client, raw string, limit int) ([]task
 	}
 	return out, next, nil
 }
+
 func (s *Store) Attempts(ctx context.Context, client, id string) ([]task.Attempt, error) {
 	if _, e := s.Get(ctx, client, id); e != nil {
 		return nil, e
 	}
-	rows, e := s.pool.Query(ctx, `SELECT generation,worker_id,started_at,finished_at,outcome,error FROM task_attempts WHERE task_id=$1 ORDER BY generation`, id)
+	rows, e := s.pool.Query(ctx, `
+SELECT generation,worker_id,started_at,finished_at,outcome,error
+FROM task_attempts
+WHERE task_id=$1
+ORDER BY generation
+`, id)
 	if e != nil {
 		return nil, e
 	}
@@ -88,12 +103,4 @@ func (s *Store) Attempts(ctx context.Context, client, id string) ([]task.Attempt
 		out = append(out, a)
 	}
 	return out, rows.Err()
-}
-
-func parsedCursorID(raw string) string {
-	v, e := uuid.Parse(raw)
-	if e != nil {
-		return raw
-	}
-	return v.String()
 }

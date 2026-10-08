@@ -1,6 +1,8 @@
 package config
 
-import "testing"
+import (
+	"testing"
+)
 
 func TestConfig(t *testing.T) {
 	t.Setenv("DATABASE_URL", "postgres://test:test@localhost:5432/test")
@@ -14,6 +16,7 @@ func TestConfig(t *testing.T) {
 		t.Fatal("heartbeat greater than lease accepted")
 	}
 }
+
 func TestKeyValidation(t *testing.T) {
 	t.Setenv("DATABASE_URL", "postgres://test:test@localhost:5432/test")
 	for _, s := range []string{"", "alice:same,bob:same", "alice:a,alice:b"} {

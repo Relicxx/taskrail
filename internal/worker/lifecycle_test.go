@@ -4,14 +4,16 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"github.com/Relicxx/taskrail/internal/config"
-	"github.com/Relicxx/taskrail/internal/task"
-	"github.com/google/uuid"
 	"io"
 	"log/slog"
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/google/uuid"
+
+	"github.com/Relicxx/taskrail/internal/config"
+	"github.com/Relicxx/taskrail/internal/task"
 )
 
 type runningStore struct {
@@ -25,15 +27,21 @@ func (s *runningStore) Claim(context.Context, string, time.Duration) (task.Task,
 	n := s.claims.Add(1)
 	return task.Task{ID: uuid.NewString(), Type: "block", Generation: n, TimeoutMS: 10000}, nil
 }
+
 func (s *runningStore) Heartbeat(context.Context, string, string, int64, time.Duration) (bool, error) {
 	s.heartbeatCalls.Add(1)
 	return false, nil
 }
-func (s *runningStore) Recover(context.Context, int) (int, error) { return 0, nil }
+
+func (s *runningStore) Recover(context.Context, int) (int, error) {
+	return 0, nil
+}
+
 func (s *runningStore) Complete(context.Context, string, string, int64, json.RawMessage) error {
 	s.completed.Add(1)
 	return nil
 }
+
 func (s *runningStore) Fail(context.Context, string, string, int64, string, bool, time.Duration) error {
 	return nil
 }
@@ -62,13 +70,23 @@ func (h *blockHandler) Execute(ctx context.Context, _ json.RawMessage) (json.Raw
 		return json.RawMessage(`{}`), nil
 	}
 }
+
 func TestBoundedConcurrencyAndShutdown(t *testing.T) {
 	s := &runningStore{}
 	h := &blockHandler{started: make(chan struct{}, 10), release: make(chan struct{})}
-	w := New(s, map[string]task.Handler{"block": h}, config.Config{WorkerID: "w", Concurrency: 2, Heartbeat: time.Millisecond * 20, Lease: time.Second, Poll: time.Millisecond, Grace: time.Millisecond * 30}, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	w := New(s, map[string]task.Handler{"block": h}, config.Config{
+		WorkerID:    "w",
+		Concurrency: 2,
+		Heartbeat:   time.Millisecond * 20,
+		Lease:       time.Second,
+		Poll:        time.Millisecond,
+		Grace:       time.Millisecond * 30,
+	}, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
-	go func() { done <- w.Run(ctx) }()
+	go func() {
+		done <- w.Run(ctx)
+	}()
 	for i := 0; i < 2; i++ {
 		select {
 		case <-h.started:
@@ -113,10 +131,12 @@ func (s *outcomeStore) Heartbeat(context.Context, string, string, int64, time.Du
 	}
 	return s.cancel, nil
 }
+
 func (s *outcomeStore) Fail(_ context.Context, _ string, _ string, _ int64, message string, permanent bool, _ time.Duration) error {
 	s.failed <- permanent
 	return nil
 }
+
 func TestTimeoutAndRequestedCancellation(t *testing.T) {
 	for _, requested := range []bool{false, true} {
 		s := &outcomeStore{failed: make(chan bool, 1), cancel: requested}
@@ -132,6 +152,7 @@ func TestTimeoutAndRequestedCancellation(t *testing.T) {
 		}
 	}
 }
+
 func TestLostLeaseDoesNotFinalize(t *testing.T) {
 	s := &outcomeStore{failed: make(chan bool, 1), lost: true}
 	w := New(s, map[string]task.Handler{"wait": timeoutHandler{}}, config.Config{WorkerID: "w", Heartbeat: time.Millisecond, Lease: time.Second}, slog.New(slog.NewTextHandler(io.Discard, nil)))
@@ -142,18 +163,29 @@ func TestLostLeaseDoesNotFinalize(t *testing.T) {
 	default:
 	}
 }
+
 func TestPermanentClassification(t *testing.T) {
 	if !task.IsPermanent(task.Permanent(errors.New("invalid"))) {
 		t.Fatal("lost error classification")
 	}
 }
+
 func TestShutdownKeepsHeartbeatDuringGrace(t *testing.T) {
 	s := &runningStore{}
 	h := &blockHandler{started: make(chan struct{}, 10), release: make(chan struct{})}
-	w := New(s, map[string]task.Handler{"block": h}, config.Config{WorkerID: "w", Concurrency: 1, Heartbeat: 10 * time.Millisecond, Lease: time.Second, Poll: time.Millisecond, Grace: time.Second}, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	w := New(s, map[string]task.Handler{"block": h}, config.Config{
+		WorkerID:    "w",
+		Concurrency: 1,
+		Heartbeat:   10 * time.Millisecond,
+		Lease:       time.Second,
+		Poll:        time.Millisecond,
+		Grace:       time.Second,
+	}, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
-	go func() { done <- w.Run(ctx) }()
+	go func() {
+		done <- w.Run(ctx)
+	}()
 	select {
 	case <-h.started:
 	case <-time.After(time.Second):
@@ -185,10 +217,18 @@ func TestShutdownKeepsHeartbeatDuringGrace(t *testing.T) {
 		t.Fatal("active task not completed")
 	}
 }
+
 func TestCanceledRunDoesNotClaim(t *testing.T) {
 	for i := 0; i < 30; i++ {
 		s := &runningStore{}
-		w := New(s, map[string]task.Handler{}, config.Config{WorkerID: "w", Concurrency: 1, Heartbeat: time.Millisecond, Lease: time.Second, Poll: time.Millisecond, Grace: time.Millisecond}, slog.New(slog.NewTextHandler(io.Discard, nil)))
+		w := New(s, map[string]task.Handler{}, config.Config{
+			WorkerID:    "w",
+			Concurrency: 1,
+			Heartbeat:   time.Millisecond,
+			Lease:       time.Second,
+			Poll:        time.Millisecond,
+			Grace:       time.Millisecond,
+		}, slog.New(slog.NewTextHandler(io.Discard, nil)))
 		ctx, cancel := context.WithCancel(context.Background())
 		cancel()
 		if e := w.Run(ctx); e != nil {

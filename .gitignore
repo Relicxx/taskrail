@@ -3,3 +3,4 @@
 work/
 *.exe
 coverage.out
+.idea/

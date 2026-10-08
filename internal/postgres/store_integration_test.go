@@ -5,11 +5,6 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
-	"github.com/Relicxx/taskrail/internal/config"
-	"github.com/Relicxx/taskrail/internal/httpapi"
-	"github.com/Relicxx/taskrail/internal/task"
-	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5/pgxpool"
 	"io"
 	"log/slog"
 	"net/http/httptest"
@@ -18,6 +13,13 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/Relicxx/taskrail/internal/config"
+	"github.com/Relicxx/taskrail/internal/httpapi"
+	"github.com/Relicxx/taskrail/internal/task"
 )
 
 func testStore(t *testing.T) *Store {
@@ -40,6 +42,7 @@ func testStore(t *testing.T) *Store {
 		t.Fatal(e)
 	}
 	cfg.ConnConfig.RuntimeParams["search_path"] = schema
+	cfg.ConnConfig.RuntimeParams["application_name"] = schema
 	pool, e := pgxpool.NewWithConfig(ctx, cfg)
 	if e != nil {
 		t.Fatal(e)
@@ -51,12 +54,23 @@ func testStore(t *testing.T) *Store {
 	if _, e = pool.Exec(ctx, string(sql)); e != nil {
 		t.Fatal(e)
 	}
-	t.Cleanup(func() { pool.Close(); _, _ = p.Exec(ctx, "DROP SCHEMA "+schema+" CASCADE"); p.Close() })
+	t.Cleanup(func() {
+		pool.Close()
+		_, _ = p.Exec(ctx, "DROP SCHEMA "+schema+" CASCADE")
+		p.Close()
+	})
 	return New(pool)
 }
+
 func input() task.CreateInput {
-	return task.CreateInput{Type: "report.aggregate", Payload: json.RawMessage(`{"numbers":[1,2,3]}`), MaxAttempts: 5, TimeoutMS: 60000}
+	return task.CreateInput{
+		Type:        "report.aggregate",
+		Payload:     json.RawMessage(`{"numbers":[1,2,3]}`),
+		MaxAttempts: 5,
+		TimeoutMS:   60000,
+	}
 }
+
 func TestCreateRace(t *testing.T) {
 	s := testStore(t)
 	ctx := context.Background()
@@ -91,6 +105,7 @@ func TestCreateRace(t *testing.T) {
 		t.Fatal(e)
 	}
 }
+
 func TestLeaseRecovery(t *testing.T) {
 	s := testStore(t)
 	ctx := context.Background()
@@ -133,6 +148,7 @@ func TestLeaseRecovery(t *testing.T) {
 		t.Fatal(e)
 	}
 }
+
 func TestCancelAndRetry(t *testing.T) {
 	s := testStore(t)
 	ctx := context.Background()
@@ -155,6 +171,7 @@ func TestCancelAndRetry(t *testing.T) {
 		t.Fatal(e)
 	}
 }
+
 func TestParallelClaim(t *testing.T) {
 	s := testStore(t)
 	ctx := context.Background()
@@ -181,6 +198,7 @@ func TestParallelClaim(t *testing.T) {
 	}
 	wg.Wait()
 }
+
 func TestExhaustionAndRetry(t *testing.T) {
 	s := testStore(t)
 	ctx := context.Background()
@@ -213,6 +231,7 @@ func TestExhaustionAndRetry(t *testing.T) {
 		t.Fatal(e)
 	}
 }
+
 func TestPaginationAndCancelQueued(t *testing.T) {
 	s := testStore(t)
 	ctx := context.Background()
@@ -258,6 +277,7 @@ func TestPaginationAndCancelQueued(t *testing.T) {
 		t.Fatal(e)
 	}
 }
+
 func TestCompleteBeforeCancel(t *testing.T) {
 	s := testStore(t)
 	ctx := context.Background()
@@ -278,6 +298,7 @@ func TestCompleteBeforeCancel(t *testing.T) {
 		t.Fatal(attempts, e)
 	}
 }
+
 func TestExpiredFinalAttempt(t *testing.T) {
 	s := testStore(t)
 	ctx := context.Background()
@@ -300,6 +321,7 @@ func TestExpiredFinalAttempt(t *testing.T) {
 		t.Fatal(v, e)
 	}
 }
+
 func TestCanceledLease(t *testing.T) {
 	s := testStore(t)
 	ctx := context.Background()
@@ -322,6 +344,7 @@ func TestCanceledLease(t *testing.T) {
 		t.Fatal(v)
 	}
 }
+
 func TestHeartbeatDoesNotRenewAfterLockWait(t *testing.T) {
 	s := testStore(t)
 	ctx := context.Background()
@@ -339,11 +362,17 @@ func TestHeartbeatDoesNotRenewAfterLockWait(t *testing.T) {
 		t.Fatal(e)
 	}
 	done := make(chan error, 1)
-	go func() { _, e := s.Heartbeat(ctx, a.ID, "w", a.Generation, time.Minute); done <- e }()
+	go func() {
+		_, e := s.Heartbeat(ctx, a.ID, "w", a.Generation, time.Minute)
+		done <- e
+	}()
 	deadline := time.Now().Add(time.Second)
 	for {
 		var blocked int
-		if e = s.pool.QueryRow(ctx, "SELECT count(*) FROM pg_stat_activity WHERE wait_event_type='Lock' AND (query LIKE 'UPDATE tasks SET lease_until=%' OR query LIKE 'SELECT id::text FROM tasks WHERE id=%')").Scan(&blocked); e != nil {
+		if e = s.pool.QueryRow(ctx,
+			"SELECT count(*) FROM pg_stat_activity WHERE wait_event_type='Lock' AND application_name=$1",
+			s.pool.Config().ConnConfig.RuntimeParams["application_name"],
+		).Scan(&blocked); e != nil {
 			t.Fatal(e)
 		}
 		if blocked > 0 {
@@ -388,6 +417,7 @@ func TestUUIDRepresentations(t *testing.T) {
 		t.Fatal(e)
 	}
 }
+
 func TestHTTPPostgresReplayAndOwnership(t *testing.T) {
 	s := testStore(t)
 	h := httpapi.New(s, config.Config{Keys: map[string]string{"alice": "a", "bob": "b"}}, slog.New(slog.NewTextHandler(io.Discard, nil)))
@@ -427,6 +457,7 @@ func TestHTTPPostgresReplayAndOwnership(t *testing.T) {
 		}
 	}
 }
+
 func TestClaimRollback(t *testing.T) {
 	s := testStore(t)
 	ctx := context.Background()

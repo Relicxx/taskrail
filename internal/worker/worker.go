@@ -4,12 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"github.com/Relicxx/taskrail/internal/config"
-	"github.com/Relicxx/taskrail/internal/task"
 	"log/slog"
 	"math/rand/v2"
 	"sync"
 	"time"
+
+	"github.com/Relicxx/taskrail/internal/config"
+	"github.com/Relicxx/taskrail/internal/task"
 )
 
 type Store interface {
@@ -29,6 +30,7 @@ type Worker struct {
 func New(s Store, h map[string]task.Handler, c config.Config, l *slog.Logger) *Worker {
 	return &Worker{s, h, c, l}
 }
+
 func (w *Worker) Run(ctx context.Context) error {
 	activeCtx, cancelActive := context.WithCancel(context.Background())
 	defer cancelActive()
@@ -89,11 +91,20 @@ loop:
 			continue
 		}
 		wg.Add(1)
-		go func() { defer wg.Done(); defer func() { <-slots }(); w.execute(activeCtx, v) }()
+		go func() {
+			defer wg.Done()
+			defer func() {
+				<-slots
+			}()
+			w.execute(activeCtx, v)
+		}()
 	}
 	cancelRecovery()
 	done := make(chan struct{})
-	go func() { wg.Wait(); close(done) }()
+	go func() {
+		wg.Wait()
+		close(done)
+	}()
 	timer := time.NewTimer(w.cfg.Grace)
 	defer timer.Stop()
 	select {
@@ -104,6 +115,7 @@ loop:
 		return nil
 	}
 }
+
 func (w *Worker) execute(parent context.Context, v task.Task) {
 	ctx, cancel := context.WithTimeout(parent, time.Duration(v.TimeoutMS)*time.Millisecond)
 	defer cancel()
@@ -188,9 +200,14 @@ func (w *Worker) execute(parent context.Context, v task.Task) {
 	if e != nil {
 		w.logger.Warn("attempt finalization failed", "task_id", v.ID, "generation", v.Generation)
 	} else {
-		w.logger.Info("attempt finished", "task_id", v.ID, "generation", v.Generation, "outcome", outcome)
+		w.logger.Info("attempt finished",
+			"task_id", v.ID,
+			"generation", v.Generation,
+			"outcome", outcome,
+		)
 	}
 }
+
 func safeExecute(ctx context.Context, h task.Handler, p json.RawMessage) (result json.RawMessage, e error) {
 	defer func() {
 		if recover() != nil {

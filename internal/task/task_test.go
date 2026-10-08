@@ -8,18 +8,32 @@ import (
 )
 
 func TestValidation(t *testing.T) {
-	for _, raw := range []string{`{"numbers":[]}`, `{"numbers":[1],"x":2}`, `{"numbers":[1],"numbers":[2]}`, `{"numbers":[1]} {}`, `{"numbers":[1e999]}`} {
+	for _, raw := range []string{
+		`{"numbers":[]}`,
+		`{"numbers":[1],"x":2}`,
+		`{"numbers":[1],"numbers":[2]}`,
+		`{"numbers":[1]} {}`,
+		`{"numbers":[1e999]}`,
+	} {
 		if _, err := Normalize(CreateInput{Type: "report.aggregate", Payload: json.RawMessage(raw)}, false); err == nil {
 			t.Errorf("accepted %s", raw)
 		}
 	}
 	for _, n := range []int{-1, 11} {
-		if _, err := Normalize(CreateInput{Type: "report.aggregate", Payload: json.RawMessage(`{"numbers":[1]}`), MaxAttempts: n}, false); err == nil {
+		if _, err := Normalize(CreateInput{
+			Type:        "report.aggregate",
+			Payload:     json.RawMessage(`{"numbers":[1]}`),
+			MaxAttempts: n,
+		}, false); err == nil {
 			t.Errorf("accepted max %d", n)
 		}
 	}
 	for _, n := range []int{-1, 301000} {
-		if _, err := Normalize(CreateInput{Type: "report.aggregate", Payload: json.RawMessage(`{"numbers":[1]}`), TimeoutMS: n}, false); err == nil {
+		if _, err := Normalize(CreateInput{
+			Type:      "report.aggregate",
+			Payload:   json.RawMessage(`{"numbers":[1]}`),
+			TimeoutMS: n,
+		}, false); err == nil {
 			t.Errorf("accepted timeout %d", n)
 		}
 	}
@@ -27,6 +41,7 @@ func TestValidation(t *testing.T) {
 		t.Fatal("demo allowed")
 	}
 }
+
 func TestAggregate(t *testing.T) {
 	r, e := (Aggregate{}).Execute(context.Background(), json.RawMessage(`{"numbers":[1,2,3]}`))
 	if e != nil {
@@ -43,12 +58,14 @@ func TestAggregate(t *testing.T) {
 		t.Fatal(string(r))
 	}
 }
+
 func TestOverflow(t *testing.T) {
 	_, e := (Aggregate{}).Execute(context.Background(), json.RawMessage(`{"numbers":[1e308,1e308]}`))
 	if e == nil || !IsPermanent(e) {
 		t.Fatal("overflow must be permanent")
 	}
 }
+
 func TestWaitCancellation(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
@@ -57,13 +74,18 @@ func TestWaitCancellation(t *testing.T) {
 		t.Fatal("ignored context")
 	}
 }
+
 func TestBackoff(t *testing.T) {
 	if Backoff(1, .5) != 500*time.Millisecond || Backoff(10000, 1) > 60*time.Second {
 		t.Fatal("backoff bounds")
 	}
 }
+
 func TestNormalizeDefaults(t *testing.T) {
-	in, e := Normalize(CreateInput{Type: "report.aggregate", Payload: json.RawMessage(`{"numbers":[1]}`)}, false)
+	in, e := Normalize(CreateInput{
+		Type:    "report.aggregate",
+		Payload: json.RawMessage(`{"numbers":[1]}`),
+	}, false)
 	if e != nil || in.MaxAttempts != 5 || in.TimeoutMS != 60000 {
 		t.Fatal(in, e)
 	}
@@ -74,8 +96,12 @@ func TestNormalizeDefaults(t *testing.T) {
 		t.Fatal("unstable immediate hash")
 	}
 }
+
 func TestNullNumberRejected(t *testing.T) {
-	_, e := Normalize(CreateInput{Type: "report.aggregate", Payload: json.RawMessage(`{"numbers":[null]}`)}, false)
+	_, e := Normalize(CreateInput{
+		Type:    "report.aggregate",
+		Payload: json.RawMessage(`{"numbers":[null]}`),
+	}, false)
 	if e == nil {
 		t.Fatal("null accepted as zero")
 	}
@@ -83,6 +109,7 @@ func TestNullNumberRejected(t *testing.T) {
 		t.Fatal("handler accepted null")
 	}
 }
+
 func TestJSONFieldCase(t *testing.T) {
 	for _, raw := range []string{`{"Numbers":[1]}`, `{"numbers":[1],"Numbers":[2]}`} {
 		if _, e := Normalize(CreateInput{Type: "report.aggregate", Payload: json.RawMessage(raw)}, false); e == nil {
