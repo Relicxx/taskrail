@@ -3,19 +3,21 @@ package app
 import (
 	"context"
 	"errors"
-	"github.com/Relicxx/taskrail/internal/config"
-	"github.com/Relicxx/taskrail/internal/httpapi"
-	"github.com/Relicxx/taskrail/internal/postgres"
-	"github.com/Relicxx/taskrail/internal/task"
-	"github.com/Relicxx/taskrail/internal/worker"
-	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5/pgxpool"
 	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
 	"time"
+
+	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/Relicxx/taskrail/internal/config"
+	"github.com/Relicxx/taskrail/internal/httpapi"
+	"github.com/Relicxx/taskrail/internal/postgres"
+	"github.com/Relicxx/taskrail/internal/task"
+	"github.com/Relicxx/taskrail/internal/worker"
 )
 
 func Run(mode string) error {
@@ -81,9 +83,19 @@ func Run(mode string) error {
 		return nil
 	}
 }
+
 func server(addr string, h http.Handler) *http.Server {
-	return &http.Server{Addr: addr, Handler: h, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 10 * time.Second, WriteTimeout: 10 * time.Second, IdleTimeout: 60 * time.Second, MaxHeaderBytes: 16 << 10}
+	return &http.Server{
+		Addr:              addr,
+		Handler:           h,
+		ReadHeaderTimeout: 5 * time.Second,
+		ReadTimeout:       10 * time.Second,
+		WriteTimeout:      10 * time.Second,
+		IdleTimeout:       60 * time.Second,
+		MaxHeaderBytes:    16 << 10,
+	}
 }
+
 func shutdownServer(s *http.Server) {
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()

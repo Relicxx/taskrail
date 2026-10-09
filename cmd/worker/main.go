@@ -1,8 +1,9 @@
 package main
 
 import (
-	"github.com/Relicxx/taskrail/internal/app"
 	"log"
+
+	"github.com/Relicxx/taskrail/internal/app"
 )
 
 func main() {

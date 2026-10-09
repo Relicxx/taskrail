@@ -3,14 +3,15 @@ package httpapi
 import (
 	"context"
 	"encoding/json"
-	"github.com/Relicxx/taskrail/internal/config"
-	"github.com/Relicxx/taskrail/internal/task"
 	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"github.com/Relicxx/taskrail/internal/config"
+	"github.com/Relicxx/taskrail/internal/task"
 )
 
 type fakeStore struct{ Store }
@@ -24,24 +25,85 @@ func (fakeStore) Create(ctx context.Context, client, key string, in task.CreateI
 	}
 	return task.Task{ID: "id", State: task.Queued}, key == "repeat", nil
 }
+
 func (fakeStore) Get(context.Context, string, string) (task.Task, error) {
 	return task.Task{}, task.ErrNotFound
 }
-func (fakeStore) Ping(context.Context) error { return nil }
+
+func (fakeStore) Ping(context.Context) error {
+	return nil
+}
+
 func TestRoutes(t *testing.T) {
 	h := New(fakeStore{}, config.Config{Keys: map[string]string{"alice": "secret"}}, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	for _, tt := range []struct {
 		name, key, body, content, auth, path string
 		want                                 int
 	}{
-		{"create", "new", `{"type":"report.aggregate","payload":{"numbers":[1]}}`, "application/json", "secret", "/v1/tasks", 201},
-		{"repeat", "repeat", `{"type":"report.aggregate","payload":{"numbers":[1]}}`, "application/json", "secret", "/v1/tasks", 200},
-		{"conflict", "conflict", `{"type":"report.aggregate","payload":{"numbers":[1]}}`, "application/json", "secret", "/v1/tasks", 409},
-		{"unauthorized", "new", `{}`, "application/json", "wrong", "/v1/tasks", 401},
-		{"missingkey", "", `{}`, "application/json", "secret", "/v1/tasks", 400},
-		{"duplicate", "new", `{"type":"report.aggregate","type":"demo.wait","payload":{}}`, "application/json", "secret", "/v1/tasks", 400},
+		{
+			"create",
+			"new",
+			`{"type":"report.aggregate","payload":{"numbers":[1]}}`,
+			"application/json",
+			"secret",
+			"/v1/tasks",
+			201,
+		},
+		{
+			"repeat",
+			"repeat",
+			`{"type":"report.aggregate","payload":{"numbers":[1]}}`,
+			"application/json",
+			"secret",
+			"/v1/tasks",
+			200,
+		},
+		{
+			"conflict",
+			"conflict",
+			`{"type":"report.aggregate","payload":{"numbers":[1]}}`,
+			"application/json",
+			"secret",
+			"/v1/tasks",
+			409,
+		},
+		{
+			"unauthorized",
+			"new",
+			`{}`,
+			"application/json",
+			"wrong",
+			"/v1/tasks",
+			401,
+		},
+		{
+			"missingkey",
+			"",
+			`{}`,
+			"application/json",
+			"secret",
+			"/v1/tasks",
+			400,
+		},
+		{
+			"duplicate",
+			"new",
+			`{"type":"report.aggregate","type":"demo.wait","payload":{}}`,
+			"application/json",
+			"secret",
+			"/v1/tasks",
+			400,
+		},
 		{"media", "new", `{}`, "text/plain", "secret", "/v1/tasks", 415},
-		{"large", "new", strings.Repeat("x", 1048577), "application/json", "secret", "/v1/tasks", 413},
+		{
+			"large",
+			"new",
+			strings.Repeat("x", 1048577),
+			"application/json",
+			"secret",
+			"/v1/tasks",
+			413,
+		},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			r := httptest.NewRequest(http.MethodPost, tt.path, strings.NewReader(tt.body))
@@ -60,6 +122,7 @@ func TestRoutes(t *testing.T) {
 		})
 	}
 }
+
 func TestRateLimit(t *testing.T) {
 	h := New(fakeStore{}, config.Config{Keys: map[string]string{"alice": "secret"}}, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	limited := false
@@ -80,6 +143,7 @@ func TestRateLimit(t *testing.T) {
 		t.Fatal("unbounded requests")
 	}
 }
+
 func TestExplicitZeroLimits(t *testing.T) {
 	h := New(fakeStore{}, config.Config{Keys: map[string]string{"alice": "secret"}}, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	for _, field := range []string{"max_attempts", "timeout_ms"} {
