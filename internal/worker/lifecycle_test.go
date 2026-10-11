@@ -56,13 +56,16 @@ type blockHandler struct {
 func (h *blockHandler) Execute(ctx context.Context, _ json.RawMessage) (json.RawMessage, error) {
 	n := h.active.Add(1)
 	defer h.active.Add(-1)
+
 	for {
 		old := h.maximum.Load()
 		if old >= n || h.maximum.CompareAndSwap(old, n) {
 			break
 		}
 	}
+
 	h.started <- struct{}{}
+
 	select {
 	case <-ctx.Done():
 		return nil, ctx.Err()
@@ -84,9 +87,11 @@ func TestBoundedConcurrencyAndShutdown(t *testing.T) {
 	}, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
+
 	go func() {
 		done <- w.Run(ctx)
 	}()
+
 	for i := 0; i < 2; i++ {
 		select {
 		case <-h.started:
@@ -94,7 +99,9 @@ func TestBoundedConcurrencyAndShutdown(t *testing.T) {
 			t.Fatal("handlers did not start")
 		}
 	}
+
 	cancel()
+
 	select {
 	case e := <-done:
 		if e != nil {
@@ -103,9 +110,11 @@ func TestBoundedConcurrencyAndShutdown(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("shutdown exceeded grace")
 	}
+
 	if n := h.maximum.Load(); n != 2 {
 		t.Fatal(n)
 	}
+
 	if n := s.claims.Load(); n != 2 {
 		t.Fatal("claimed after shutdown", n)
 	}
@@ -129,6 +138,7 @@ func (s *outcomeStore) Heartbeat(context.Context, string, string, int64, time.Du
 	if s.lost {
 		return false, task.ErrLeaseLost
 	}
+
 	return s.cancel, nil
 }
 
@@ -142,6 +152,7 @@ func TestTimeoutAndRequestedCancellation(t *testing.T) {
 		s := &outcomeStore{failed: make(chan bool, 1), cancel: requested}
 		w := New(s, map[string]task.Handler{"wait": timeoutHandler{}}, config.Config{WorkerID: "w", Heartbeat: time.Millisecond, Lease: time.Second}, slog.New(slog.NewTextHandler(io.Discard, nil)))
 		w.execute(context.Background(), task.Task{Type: "wait", TimeoutMS: 10})
+
 		select {
 		case permanent := <-s.failed:
 			if permanent {
@@ -157,6 +168,7 @@ func TestLostLeaseDoesNotFinalize(t *testing.T) {
 	s := &outcomeStore{failed: make(chan bool, 1), lost: true}
 	w := New(s, map[string]task.Handler{"wait": timeoutHandler{}}, config.Config{WorkerID: "w", Heartbeat: time.Millisecond, Lease: time.Second}, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	w.execute(context.Background(), task.Task{Type: "wait", TimeoutMS: 10000})
+
 	select {
 	case <-s.failed:
 		t.Fatal("finalized lost lease")
@@ -183,28 +195,36 @@ func TestShutdownKeepsHeartbeatDuringGrace(t *testing.T) {
 	}, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
+
 	go func() {
 		done <- w.Run(ctx)
 	}()
+
 	select {
 	case <-h.started:
 	case <-time.After(time.Second):
 		t.Fatal("not started")
 	}
+
 	cancel()
 	deadline := time.Now().Add(time.Second)
+
 	for s.heartbeatCalls.Load() < 3 {
 		select {
 		case <-done:
 			t.Fatal("stopped before grace")
 		default:
 		}
+
 		if time.Now().After(deadline) {
 			t.Fatal("heartbeats stopped during grace")
 		}
+
 		time.Sleep(time.Millisecond)
 	}
+
 	close(h.release)
+
 	select {
 	case e := <-done:
 		if e != nil {
@@ -213,6 +233,7 @@ func TestShutdownKeepsHeartbeatDuringGrace(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("not finished")
 	}
+
 	if s.completed.Load() != 1 {
 		t.Fatal("active task not completed")
 	}
@@ -234,6 +255,7 @@ func TestCanceledRunDoesNotClaim(t *testing.T) {
 		if e := w.Run(ctx); e != nil {
 			t.Fatal(e)
 		}
+
 		if s.claims.Load() != 0 {
 			t.Fatal("claimed with canceled root context")
 		}

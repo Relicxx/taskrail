@@ -14,14 +14,17 @@ func main() {
 	if url == "" {
 		log.Fatal("DATABASE_URL is required")
 	}
+
 	db, e := sql.Open("pgx", url)
 	if e != nil {
 		log.Fatal("cannot open database")
 	}
+
 	defer db.Close()
 	if e = goose.SetDialect("postgres"); e != nil {
 		log.Fatal(e)
 	}
+
 	if e = goose.Up(db, "migrations"); e != nil {
 		log.Fatal(e)
 	}

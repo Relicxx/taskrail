@@ -31,6 +31,7 @@ type CreateInput struct {
 	MaxAttempts int             `json:"max_attempts,omitempty"`
 	TimeoutMS   int             `json:"timeout_ms,omitempty"`
 }
+
 type Task struct {
 	ID              string          `json:"id"`
 	ClientID        string          `json:"-"`
@@ -49,6 +50,7 @@ type Task struct {
 	CreatedAt       time.Time       `json:"created_at"`
 	UpdatedAt       time.Time       `json:"updated_at"`
 }
+
 type Attempt struct {
 	Generation int64      `json:"generation"`
 	WorkerID   string     `json:"worker_id"`
@@ -57,6 +59,7 @@ type Attempt struct {
 	Outcome    string     `json:"outcome"`
 	Error      string     `json:"error,omitempty"`
 }
+
 type Handler interface {
 	Execute(context.Context, json.RawMessage) (json.RawMessage, error)
 }
@@ -75,15 +78,20 @@ func Backoff(attempt int, random float64) time.Duration {
 	if random < 0 {
 		random = 0
 	}
+
 	if random > 1 {
 		random = 1
 	}
+
 	seconds := 1.
+
 	for i := 1; i < attempt && seconds < 60; i++ {
 		seconds *= 2
 	}
+
 	if seconds > 60 {
 		seconds = 60
 	}
+
 	return time.Duration(seconds * random * float64(time.Second))
 }

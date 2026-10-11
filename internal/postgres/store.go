@@ -32,6 +32,7 @@ func scan(row pgx.Row) (t task.Task, e error) {
 	if errors.Is(e, pgx.ErrNoRows) {
 		e = task.ErrNotFound
 	}
+
 	return
 }
 

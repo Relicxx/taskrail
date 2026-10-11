@@ -15,6 +15,7 @@ func (s *Store) Claim(ctx context.Context, worker string, lease time.Duration) (
 	if e != nil {
 		return task.Task{}, e
 	}
+
 	defer rollback(tx)
 	v, e := scan(tx.QueryRow(ctx, `
 UPDATE tasks
@@ -39,9 +40,14 @@ RETURNING
 	if e != nil {
 		return v, e
 	}
-	if _, e = tx.Exec(ctx, `INSERT INTO task_attempts(task_id,generation,worker_id) VALUES($1,$2,$3)`, v.ID, v.Generation, worker); e != nil {
+
+	if _, e = tx.Exec(ctx, `
+INSERT INTO task_attempts (task_id, generation, worker_id)
+VALUES ($1, $2, $3)
+`, v.ID, v.Generation, worker); e != nil {
 		return v, e
 	}
+
 	e = tx.Commit(ctx)
 	return v, e
 }
@@ -51,17 +57,26 @@ func (s *Store) Heartbeat(ctx context.Context, id, worker string, gen int64, lea
 	if e != nil {
 		return false, e
 	}
+
 	defer rollback(tx)
 	var locked string
-	e = tx.QueryRow(ctx, `SELECT id::text FROM tasks
-WHERE id=$1 AND worker_id=$2 AND generation=$3
-  AND state='running' FOR UPDATE`, id, worker, gen).Scan(&locked)
+	e = tx.QueryRow(ctx, `
+SELECT id::text
+FROM tasks
+WHERE id = $1
+  AND worker_id = $2
+  AND generation = $3
+  AND state = 'running'
+FOR UPDATE
+`, id, worker, gen).Scan(&locked)
 	if errors.Is(e, pgx.ErrNoRows) {
 		return false, task.ErrLeaseLost
 	}
+
 	if e != nil {
 		return false, e
 	}
+
 	var cancel bool
 	e = tx.QueryRow(ctx, `
 UPDATE tasks
@@ -79,8 +94,10 @@ RETURNING cancel_requested
 			return false, task.ErrLeaseLost
 		}
 	}
+
 	if e != nil {
 		return false, e
 	}
+
 	return cancel, tx.Commit(ctx)
 }
