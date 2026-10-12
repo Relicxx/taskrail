@@ -25,57 +25,94 @@ func Run(mode string) error {
 	if e != nil {
 		return e
 	}
+
 	if cfg.WorkerID == "" {
 		cfg.WorkerID = uuid.NewString()
 	}
+
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	pc, e := pgxpool.ParseConfig(cfg.DatabaseURL)
+
+	pool, e := openPool(ctx, cfg.DatabaseURL)
 	if e != nil {
-		return errors.New("invalid database config")
+		return e
 	}
+
+	defer pool.Close()
+
+	store := postgres.New(pool)
+	errCh := make(chan error, 1)
+	if mode == "worker" {
+		return runWorker(ctx, cfg, store, logger, errCh)
+	}
+
+	return runAPI(ctx, cfg, store, logger, errCh, stop)
+}
+
+func openPool(ctx context.Context, databaseURL string) (*pgxpool.Pool, error) {
+	pc, e := pgxpool.ParseConfig(databaseURL)
+	if e != nil {
+		return nil, errors.New("invalid database config")
+	}
+
 	pc.ConnConfig.ConnectTimeout = 3 * time.Second
 	pc.MaxConns = 16
+
 	pool, e := pgxpool.NewWithConfig(ctx, pc)
 	if e != nil {
-		return errors.New("database pool initialization failed")
+		return nil, errors.New("database pool initialization failed")
 	}
-	defer pool.Close()
+
 	ready, cancel := context.WithTimeout(ctx, 3*time.Second)
 	e = pool.Ping(ready)
 	cancel()
 	if e != nil {
-		return errors.New("database unavailable")
+		pool.Close()
+		return nil, errors.New("database unavailable")
 	}
-	store := postgres.New(pool)
-	errCh := make(chan error, 1)
-	if mode == "worker" {
-		handlers := map[string]task.Handler{"report.aggregate": task.Aggregate{}}
-		if cfg.Demo {
-			handlers["demo.wait"] = task.Wait{}
-		}
-		e = worker.New(store, handlers, cfg, logger).Run(ctx)
-		if e != nil {
-			return e
-		}
-		select {
-		case e = <-errCh:
-			return e
-		default:
-			return nil
-		}
-	}
-	api := server(cfg.HTTPAddr, httpapi.New(store, cfg, logger))
+
+	return pool, nil
+}
+
+func serve(s *http.Server, errCh chan<- error, stop context.CancelFunc) {
 	go func() {
-		if e := api.ListenAndServe(); e != nil && !errors.Is(e, http.ErrServerClosed) {
+		if e := s.ListenAndServe(); e != nil && !errors.Is(e, http.ErrServerClosed) {
 			errCh <- e
 			stop()
 		}
 	}()
+}
+
+func runWorker(ctx context.Context, cfg config.Config, store *postgres.Store, logger *slog.Logger, errCh <-chan error) error {
+	handlers := map[string]task.Handler{
+		"report.aggregate": task.Aggregate{},
+	}
+
+	if cfg.Demo {
+		handlers["demo.wait"] = task.Wait{}
+	}
+
+	if e := worker.New(store, handlers, cfg, logger).Run(ctx); e != nil {
+		return e
+	}
+
+	select {
+	case e := <-errCh:
+		return e
+	default:
+		return nil
+	}
+}
+
+func runAPI(ctx context.Context, cfg config.Config, store *postgres.Store, logger *slog.Logger, errCh chan error, stop context.CancelFunc) error {
+	api := server(cfg.HTTPAddr, httpapi.New(store, cfg, logger))
+	serve(api, errCh, stop)
 	logger.Info("api started", "address", cfg.HTTPAddr)
+
 	<-ctx.Done()
 	shutdownServer(api)
+
 	select {
 	case e := <-errCh:
 		return e

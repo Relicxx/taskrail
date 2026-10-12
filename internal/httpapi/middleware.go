@@ -41,6 +41,7 @@ func requestObserver(logger *slog.Logger) gin.HandlerFunc {
 		if route == "" {
 			route = "unmatched"
 		}
+
 		logger.Info("http request",
 			"method", c.Request.Method,
 			"route", route,
@@ -57,16 +58,19 @@ func clientAccess(cfg config.Config) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		given := sha256.Sum256([]byte(c.GetHeader("X-API-Key")))
 		client := ""
+
 		for id, key := range cfg.Keys {
 			expected := sha256.Sum256([]byte(key))
 			if subtle.ConstantTimeCompare(given[:], expected[:]) == 1 {
 				client = id
 			}
 		}
+
 		if client == "" {
 			respond(c, 401, "unauthorized")
 			return
 		}
+
 		c.Set("client", client)
 		mu.Lock()
 		v := windows[client]
@@ -74,6 +78,7 @@ func clientAccess(cfg config.Config) gin.HandlerFunc {
 		if now.Sub(v.start) >= time.Second {
 			v = window{start: now}
 		}
+
 		v.used++
 		windows[client] = v
 		mu.Unlock()
@@ -82,6 +87,7 @@ func clientAccess(cfg config.Config) gin.HandlerFunc {
 			respond(c, 429, "rate_limited")
 			return
 		}
+
 		select {
 		case slots <- struct{}{}:
 			defer func() {
@@ -91,6 +97,7 @@ func clientAccess(cfg config.Config) gin.HandlerFunc {
 			respond(c, 429, "busy")
 			return
 		}
+
 		ctx, cancel := context.WithTimeout(c.Request.Context(), 5*time.Second)
 		defer cancel()
 		c.Request = c.Request.WithContext(ctx)

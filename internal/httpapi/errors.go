@@ -16,12 +16,14 @@ func idempotency(c *gin.Context) (string, bool) {
 		respond(c, 400, "invalid_idempotency_key")
 		return "", false
 	}
+
 	for _, b := range []byte(k) {
 		if b < 33 || b > 126 {
 			respond(c, 400, "invalid_idempotency_key")
 			return "", false
 		}
 	}
+
 	return k, true
 }
 

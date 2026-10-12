@@ -20,9 +20,11 @@ func (fakeStore) Create(ctx context.Context, client, key string, in task.CreateI
 	if client != "alice" {
 		panic("wrong owner")
 	}
+
 	if key == "conflict" {
 		return task.Task{}, false, task.ErrConflict
 	}
+
 	return task.Task{ID: "id", State: task.Queued}, key == "repeat", nil
 }
 
@@ -36,6 +38,7 @@ func (fakeStore) Ping(context.Context) error {
 
 func TestRoutes(t *testing.T) {
 	h := New(fakeStore{}, config.Config{Keys: map[string]string{"alice": "secret"}}, slog.New(slog.NewTextHandler(io.Discard, nil)))
+
 	for _, tt := range []struct {
 		name, key, body, content, auth, path string
 		want                                 int
@@ -115,6 +118,7 @@ func TestRoutes(t *testing.T) {
 			if w.Code != tt.want {
 				t.Fatalf("got %d: %s", w.Code, w.Body.String())
 			}
+
 			var response map[string]json.RawMessage
 			if json.Unmarshal(w.Body.Bytes(), &response) != nil {
 				t.Fatal("not JSON")
@@ -126,6 +130,7 @@ func TestRoutes(t *testing.T) {
 func TestRateLimit(t *testing.T) {
 	h := New(fakeStore{}, config.Config{Keys: map[string]string{"alice": "secret"}}, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	limited := false
+
 	for i := 0; i < 110; i++ {
 		r := httptest.NewRequest("GET", "/v1/tasks/x", nil)
 		r.Header.Set("X-API-Key", "secret")
@@ -135,10 +140,12 @@ func TestRateLimit(t *testing.T) {
 			limited = true
 			break
 		}
+
 		if w.Code != 404 {
 			t.Fatal(w.Code)
 		}
 	}
+
 	if !limited {
 		t.Fatal("unbounded requests")
 	}
@@ -146,6 +153,7 @@ func TestRateLimit(t *testing.T) {
 
 func TestExplicitZeroLimits(t *testing.T) {
 	h := New(fakeStore{}, config.Config{Keys: map[string]string{"alice": "secret"}}, slog.New(slog.NewTextHandler(io.Discard, nil)))
+
 	for _, field := range []string{"max_attempts", "timeout_ms"} {
 		r := httptest.NewRequest("POST", "/v1/tasks", strings.NewReader(`{"type":"report.aggregate","payload":{"numbers":[1]},"`+field+`":0}`))
 		r.Header.Set("Content-Type", "application/json")

@@ -40,6 +40,7 @@ func (h *taskHandlers) ready(c *gin.Context) {
 		respond(c, 503, "not_ready")
 		return
 	}
+
 	c.JSON(200, gin.H{"status": "ready"})
 }
 
@@ -48,11 +49,34 @@ func (h *taskHandlers) create(c *gin.Context) {
 	if !ok {
 		return
 	}
+
+	in, ok := readCreateInput(c, h.cfg.Demo)
+	if !ok {
+		return
+	}
+
+	v, replay, e := h.store.Create(c.Request.Context(), c.GetString("client"), key, in)
+	if e != nil {
+		handleError(c, e)
+		return
+	}
+
+	code := 201
+	if replay {
+		code = 200
+	}
+
+	c.Header("Location", "/v1/tasks/"+v.ID)
+	c.JSON(code, v)
+}
+
+func readCreateInput(c *gin.Context, demo bool) (task.CreateInput, bool) {
 	media, _, e := mime.ParseMediaType(c.GetHeader("Content-Type"))
 	if e != nil || media != "application/json" {
 		respond(c, 415, "unsupported_media_type")
-		return
+		return task.CreateInput{}, false
 	}
+
 	body, e := io.ReadAll(http.MaxBytesReader(c.Writer, c.Request.Body, 1<<20))
 	if e != nil {
 		var max *http.MaxBytesError
@@ -61,40 +85,36 @@ func (h *taskHandlers) create(c *gin.Context) {
 		} else {
 			respond(c, 400, "invalid_body")
 		}
-		return
+
+		return task.CreateInput{}, false
 	}
+
 	var in task.CreateInput
 	if task.StrictJSON(body, &in) != nil {
 		respond(c, 400, "invalid_json")
-		return
+		return task.CreateInput{}, false
 	}
+
 	var fields map[string]json.RawMessage
 	_ = json.Unmarshal(body, &fields)
+
 	for _, name := range []string{"max_attempts", "timeout_ms"} {
 		if raw, present := fields[name]; present {
 			var n *int
 			if json.Unmarshal(raw, &n) != nil || n == nil || *n <= 0 {
 				respond(c, 400, "invalid_limits")
-				return
+				return task.CreateInput{}, false
 			}
 		}
 	}
-	in, e = task.Normalize(in, h.cfg.Demo)
+
+	in, e = task.Normalize(in, demo)
 	if e != nil {
 		handleError(c, e)
-		return
+		return task.CreateInput{}, false
 	}
-	v, replay, e := h.store.Create(c.Request.Context(), c.GetString("client"), key, in)
-	if e != nil {
-		handleError(c, e)
-		return
-	}
-	code := 201
-	if replay {
-		code = 200
-	}
-	c.Header("Location", "/v1/tasks/"+v.ID)
-	c.JSON(code, v)
+
+	return in, true
 }
 
 func (h *taskHandlers) list(c *gin.Context) {
@@ -107,15 +127,18 @@ func (h *taskHandlers) list(c *gin.Context) {
 			return
 		}
 	}
+
 	if len(c.Query("cursor")) > 1024 {
 		respond(c, 400, "invalid_cursor")
 		return
 	}
+
 	items, next, e := h.store.List(c.Request.Context(), c.GetString("client"), c.Query("cursor"), limit)
 	if e != nil {
 		handleError(c, e)
 		return
 	}
+
 	c.JSON(200, gin.H{"items": items, "next_cursor": next})
 }
 
@@ -125,6 +148,7 @@ func (h *taskHandlers) get(c *gin.Context) {
 		handleError(c, e)
 		return
 	}
+
 	c.JSON(200, v)
 }
 
@@ -134,6 +158,7 @@ func (h *taskHandlers) attempts(c *gin.Context) {
 		handleError(c, e)
 		return
 	}
+
 	c.JSON(200, gin.H{"items": v})
 }
 
@@ -143,6 +168,7 @@ func (h *taskHandlers) cancel(c *gin.Context) {
 		handleError(c, e)
 		return
 	}
+
 	c.JSON(200, v)
 }
 
@@ -151,15 +177,18 @@ func (h *taskHandlers) retry(c *gin.Context) {
 	if !ok {
 		return
 	}
+
 	v, replay, e := h.store.Retry(c.Request.Context(), c.GetString("client"), c.Param("id"), key)
 	if e != nil {
 		handleError(c, e)
 		return
 	}
+
 	code := 201
 	if replay {
 		code = 200
 	}
+
 	c.Header("Location", "/v1/tasks/"+v.ID)
 	c.JSON(code, v)
 }
